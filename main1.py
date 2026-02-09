@@ -1,5 +1,5 @@
 # main.py
-# Astro Pi Mission Space Lab – ISS speed experiment
+# Astro Pi Mission Space Lab - ISS speed experiment
 # Captures images, calculates ISS speed using OpenCV features
 # Fully compliant with template
 
@@ -109,7 +109,7 @@ def compute_pixel_shift(img1_gray, img2_gray):
     return float(np.median(displacements))
 
 def robust_median(values):
-    """Compute median with outlier rejection"""
+    """Compute median with MAD-based outlier rejection, return mean of filtered values"""
     if not values:
         return None
     arr = np.array(values)
@@ -118,7 +118,8 @@ def robust_median(values):
     mad = np.median(dev)
     if mad == 0:
         return float(med)
-    return float(np.median(arr[dev <= 2 * mad]))
+    filtered = arr[dev <= 2 * mad]
+    return float(np.mean(filtered))
 
 # -------------------------------------------------------------------------
 # MAIN PROGRAM
@@ -161,7 +162,7 @@ def main():
             break
         
         # Create filename and capture
-        filename = f"data/images/image_{i:02d}.jpg"
+        filename = f"image_{i:02d}.jpg"
         capture_time = time()
         
         try:
@@ -231,7 +232,7 @@ def main():
 
     # Write result.txt exactly one number, one line
     with open("result.txt", "w") as f:
-        f.write(final_speed) 
+        f.write(f"{final_speed:.4f}\n") 
     print(final_speed)
 
     # Optional: display on Sense HAT

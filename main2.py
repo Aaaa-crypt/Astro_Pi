@@ -33,14 +33,6 @@ IMAGE_FOLDER = "data"              # Folder to store images
 # Create image folder
 Path(IMAGE_FOLDER).mkdir(exist_ok=True)
 
-# Feature detection parameters (ORB algorithm)
-ORB_FEATURES = 2000                # Number of ORB features to detect per image
-MIN_MATCHES = 10                   # Minimum matches required to accept a frame pair
-MIN_KEYPOINTS = 10                 # Minimum keypoints needed for feature detection
-
-# Outlier rejection parameters
-MAD_THRESHOLD = 2.0                # Median Absolute Deviation multiplier for filtering
-
 # =========================================================================
 # HELPER FUNCTIONS
 # =========================================================================
@@ -91,33 +83,33 @@ def find_pixel_shift(image1_path, image2_path):
     if img1 is None or img2 is None:
         return None
     
-    # Initialize ORB detector using configured feature count
-    orb = cv2.ORB_create(nfeatures=ORB_FEATURES)
-
+    # Initialize ORB detector
+    orb = cv2.ORB_create(nfeatures=2000)
+    
     # Detect keypoints and descriptors
     kp1, des1 = orb.detectAndCompute(img1, None)
     kp2, des2 = orb.detectAndCompute(img2, None)
-
-    # Check if enough features were found
-    if des1 is None or des2 is None or len(kp1) < MIN_KEYPOINTS or len(kp2) < MIN_KEYPOINTS:
+    
+    # Check if features were found
+    if des1 is None or des2 is None or len(kp1) < 10:
         return None
-
-    # Match features between images using Brute Force matcher with Hamming distance
+    
+    # Match features between images
     bf_matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
     matches = bf_matcher.match(des1, des2)
-
-    # Need at least minimum matches to accept result
-    if len(matches) < MIN_MATCHES:
+    
+    # Need at least 10 good matches
+    if len(matches) < 10:
         return None
-
-    # Calculate displacements for each matched feature (use all matches)
+    
+    # Calculate displacements for each match
     displacements = []
-    for match in matches:
+    for match in matches[:100]:  # Use up to 100 best matches
         pt1 = kp1[match.queryIdx].pt
         pt2 = kp2[match.trainIdx].pt
         displacement = math.hypot(pt2[0] - pt1[0], pt2[1] - pt1[1])
         displacements.append(displacement)
-
+    
     # Return median displacement (robust to outliers)
     return float(np.median(displacements))
 
@@ -141,14 +133,14 @@ def calculate_robust_median(values):
     # Calculate MAD (Median Absolute Deviation)
     absolute_deviations = np.abs(arr - median)
     mad = np.median(absolute_deviations)
-
+    
     # If all values are the same
     if mad == 0:
         return float(median)
-
-    # Keep values within MAD_THRESHOLD * MAD of median
-    filtered = arr[absolute_deviations <= MAD_THRESHOLD * mad]
-
+    
+    # Keep values within 2*MAD of median
+    filtered = arr[absolute_deviations <= 2 * mad]
+    
     return float(np.mean(filtered))
 
 
@@ -188,12 +180,6 @@ def main():
     
     image_files = []
     image_times = []
-    # Compute speeds on-the-fly; keep only previous image to save storage
-    speed_estimates = []
-    prev_image = None
-    prev_time = None
-    # Precompute ground scale for on-the-fly calculation
-    scale_m_per_pixel = get_ground_scale_m_per_pixel()
     start_time = time()
     
     try:
@@ -213,34 +199,9 @@ def main():
             
             image_files.append(image_path)
             image_times.append(capture_time)
-
+            
             print(f"  [{i+1:2d}/{NUM_IMAGES}] Captured {image_name}")
-
-            # If a previous image exists, process the pair now
-            if prev_image is not None:
-                dt = capture_time - prev_time
-                if dt > 0:
-                    pixel_shift = find_pixel_shift(prev_image, image_path)
-                    if pixel_shift is not None:
-                        ground_distance = pixel_shift * scale_m_per_pixel
-                        speed_ms = ground_distance / dt
-                        speed_kms = speed_ms / 1000.0
-                        speed_estimates.append(speed_kms)
-                        print(f"    Pair proc: {prev_image} -> {image_name}: {pixel_shift:.1f}px -> {speed_kms:.4f} km/s")
-                    else:
-                        print(f"    Pair proc: {prev_image} -> {image_name}: no match")
-                else:
-                    print(f"    Pair proc: invalid dt {dt}")
-
-                # Remove previous image to avoid storing all images
-                try:
-                    Path(prev_image).unlink()
-                except Exception:
-                    pass
-
-            prev_image = image_path
-            prev_time = capture_time
-
+            
             # Wait before next capture (except for last image)
             if i < NUM_IMAGES - 1:
                 sleep(CAPTURE_INTERVAL)
@@ -258,43 +219,41 @@ def main():
         print(f"[ERROR] Need at least 2 images, got {len(image_files)}")
         return
     
-    # If we already computed speeds during capture, use those estimates
-    if len(speed_estimates) > 0:
-        print(f"Using {len(speed_estimates)} on-the-fly speed estimates collected during capture")
-    else:
-        # Get ground scale
-        scale_m_per_pixel = get_ground_scale_m_per_pixel()
-        print(f"Ground scale: {scale_m_per_pixel:.2f} m/pixel")
-
-        # Analyze consecutive image pairs (fallback)
-        for i in range(len(image_files) - 1):
-            img1_path = image_files[i]
-            img2_path = image_files[i + 1]
-            t1 = image_times[i]
-            t2 = image_times[i + 1]
-
-            # Time between images
-            dt = t2 - t1
-
-            if dt <= 0:
-                print(f"  Pair {i}: Invalid time delta")
-                continue
-
-            # Find pixel shift
-            pixel_shift = find_pixel_shift(img1_path, img2_path)
-
-            if pixel_shift is None:
-                print(f"  Pair {i}: No features matched")
-                continue
-
-            # Convert to speed
-            ground_distance = pixel_shift * scale_m_per_pixel
-            speed_ms = ground_distance / dt
-            speed_kms = speed_ms / 1000.0
-
-            speed_estimates.append(speed_kms)
-
-            print(f"  Pair {i}: {pixel_shift:.1f}px -> {speed_kms:.4f} km/s")
+    # Get ground scale
+    scale_m_per_pixel = get_ground_scale_m_per_pixel()
+    print(f"Ground scale: {scale_m_per_pixel:.2f} m/pixel")
+    
+    # Analyze consecutive image pairs
+    speed_estimates = []
+    
+    for i in range(len(image_files) - 1):
+        img1_path = image_files[i]
+        img2_path = image_files[i + 1]
+        t1 = image_times[i]
+        t2 = image_times[i + 1]
+        
+        # Time between images
+        dt = t2 - t1
+        
+        if dt <= 0:
+            print(f"  Pair {i}: Invalid time delta")
+            continue
+        
+        # Find pixel shift
+        pixel_shift = find_pixel_shift(img1_path, img2_path)
+        
+        if pixel_shift is None:
+            print(f"  Pair {i}: No features matched")
+            continue
+        
+        # Convert to speed
+        ground_distance = pixel_shift * scale_m_per_pixel
+        speed_ms = ground_distance / dt
+        speed_kms = speed_ms / 1000.0
+        
+        speed_estimates.append(speed_kms)
+        
+        print(f"  Pair {i}: {pixel_shift:.1f}px -> {speed_kms:.4f} km/s")
     
     # Phase 3: Calculate final estimate
     print(f"\nPhase 3: Final calculation...")
