@@ -12,7 +12,6 @@ from pathlib import Path
 # -------------------------------------------------------------------------
 # HARDWARE IMPORTS (Astro Pi Replay compatible)
 # -------------------------------------------------------------------------
-
 try:
     from picamzero import Camera
     CAMERA_AVAILABLE = True
