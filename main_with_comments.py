@@ -9,7 +9,9 @@ import cv2
 import numpy as np
 from pathlib import Path
 
+# -------------------------------------------------------------------------
 # HARDWARE IMPORTS (Astro Pi Replay compatible)
+# -------------------------------------------------------------------------
 
 try:
     from picamzero import Camera
@@ -23,23 +25,34 @@ try:
 except ImportError:
     SENSEHAT_AVAILABLE = False
 
+# -------------------------------------------------------------------------
 # CONFIGURATION
+# -------------------------------------------------------------------------
+# Limits chosen to comply with Astro Pi rules:
+# - max 42 images
+# - max runtime under 10 minutes
 
 NUM_IMAGES = 42
-CAPTURE_INTERVAL = 8
-MAX_RUNTIME = 595
+CAPTURE_INTERVAL = 8          # seconds between images
+MAX_RUNTIME = 595             # safety margin under 10 minutes
 
+# ORB feature detection parameters
 ORB_FEATURES = 2000
 MIN_MATCHES = 10
 MIN_KEYPOINTS = 10
-MATCH_KEEP_RATIO = 0.3
+MATCH_KEEP_RATIO = 0.3        # keep best 30% of feature matches
+
+# Outlier rejection threshold
 MAD_THRESHOLD = 2.0
 
+# -------------------------------------------------------------------------
 # HELPER FUNCTIONS
+# -------------------------------------------------------------------------
 
 def get_ground_scale_m_per_pixel():
     """
-    Calculate meters per pixel using small-angle approximation.
+    Calculate meters per pixel using the small-angle approximation.
+    This is valid because ISS altitude is much larger than ground displacement.
     """
     ISS_ALTITUDE_M = 408000.0
     CAMERA_FOV_DEG = 62.0
@@ -47,12 +60,15 @@ def get_ground_scale_m_per_pixel():
 
     fov_rad = math.radians(CAMERA_FOV_DEG)
     angle_per_pixel = fov_rad / IMAGE_WIDTH
+
+    # Ground distance per pixel (small-angle approximation)
     return ISS_ALTITUDE_M * angle_per_pixel
 
 
 def find_pixel_shift(image1_path, image2_path):
     """
-    Compute median pixel displacement between two images using ORB.
+    Compute median pixel displacement between two images using ORB feature matching.
+    ORB is chosen because it is fast and robust on textured Earth imagery.
     """
     img1 = cv2.imread(str(image1_path), cv2.IMREAD_GRAYSCALE)
     img2 = cv2.imread(str(image2_path), cv2.IMREAD_GRAYSCALE)
@@ -77,6 +93,7 @@ def find_pixel_shift(image1_path, image2_path):
     if len(matches) < MIN_MATCHES:
         return None
 
+    # Keep only the best-quality matches to reduce noise
     matches = sorted(matches, key=lambda m: m.distance)
     matches = matches[:max(int(len(matches) * MATCH_KEEP_RATIO), MIN_MATCHES)]
 
@@ -86,12 +103,14 @@ def find_pixel_shift(image1_path, image2_path):
         x2, y2 = kp2[m.trainIdx].pt
         displacements.append(math.hypot(x2 - x1, y2 - y1))
 
+    # Median displacement is robust against outliers
     return float(np.median(displacements))
 
 
 def calculate_robust_median(values):
     """
-    MAD-filtered mean of values.
+    Calculate a robust average using Median Absolute Deviation (MAD)
+    to remove outliers caused by poor feature matches.
     """
     if not values:
         return None
@@ -106,7 +125,9 @@ def calculate_robust_median(values):
     filtered = arr[np.abs(arr - median) <= MAD_THRESHOLD * mad]
     return float(np.mean(filtered))
 
+# -------------------------------------------------------------------------
 # MAIN PROGRAM
+# -------------------------------------------------------------------------
 
 def main():
     print("=" * 60)
@@ -138,10 +159,11 @@ def main():
     start_time = time()
 
     for i in range(NUM_IMAGES):
+        # Stop if runtime limit is reached
         if time() - start_time >= MAX_RUNTIME:
             break
 
-        image_path = f"image_{i:02d}.jpg"
+        image_path = f"image_{i:02d}.jpg"   # relative path
         capture_time = time()
         camera.take_photo(image_path)
         print(f"[{i+1:02d}] Captured {image_path}")
@@ -156,7 +178,7 @@ def main():
                     speed_estimates.append(speed_kms)
                     print(f"    Δ={shift:.1f}px → {speed_kms:.4f} km/s")
 
-            # Delete older images BUT keep the last one
+            # Delete older images to save storage (keep only latest)
             if i > 1:
                 try:
                     Path(prev_image).unlink()
@@ -169,6 +191,7 @@ def main():
         if i < NUM_IMAGES - 1:
             sleep(CAPTURE_INTERVAL)
 
+    # Final robust speed estimate
     if not speed_estimates:
         final_speed = 0.0
     else:
@@ -186,7 +209,9 @@ def main():
     print(f"Final speed: {final_speed:.4f} km/s")
     print("Program complete")
 
+# -------------------------------------------------------------------------
 # ENTRY POINT
+# -------------------------------------------------------------------------
 
 if __name__ == "__main__":
     try:
