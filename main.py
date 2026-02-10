@@ -1,15 +1,10 @@
-"""
-Astro Pi ISS Speed Estimation Program
-Captures images and analyzes ground motion to estimate ISS orbital velocity.
-"""
-
 from time import time, sleep
 import math
 import cv2
 import numpy as np
 from pathlib import Path
 
-# HARDWARE IMPORTS (Astro Pi Replay compatible)
+# hardware imports
 
 try:
     from picamzero import Camera
@@ -23,7 +18,7 @@ try:
 except ImportError:
     SENSEHAT_AVAILABLE = False
 
-# CONFIGURATION
+# configuration
 
 NUM_IMAGES = 42
 CAPTURE_INTERVAL = 8
@@ -35,7 +30,7 @@ MIN_KEYPOINTS = 10
 MATCH_KEEP_RATIO = 0.3
 MAD_THRESHOLD = 2.0
 
-# HELPER FUNCTIONS
+# helper functins
 
 def get_ground_scale_m_per_pixel():
     """
@@ -106,7 +101,7 @@ def calculate_robust_median(values):
     filtered = arr[np.abs(arr - median) <= MAD_THRESHOLD * mad]
     return float(np.mean(filtered))
 
-# MAIN PROGRAM
+# main program
 
 def main():
     print("=" * 60)
@@ -156,7 +151,7 @@ def main():
                     speed_estimates.append(speed_kms)
                     print(f"    Δ={shift:.1f}px → {speed_kms:.4f} km/s")
 
-            # Delete older images BUT keep the last one
+            # deletes some of the images
             if i > 1:
                 try:
                     Path(prev_image).unlink()
@@ -186,7 +181,7 @@ def main():
     print(f"Final speed: {final_speed:.4f} km/s")
     print("Program complete")
 
-# ENTRY POINT
+# entry point
 
 if __name__ == "__main__":
     try:
